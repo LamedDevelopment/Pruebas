@@ -1,0 +1,56 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+// Configuración del datasource para PostgreSQL
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Modelo de Usuario
+model Usuario {
+  id_usuario       Int         @id @default(autoincrement())
+  nombre           String
+  correo_electronico String     @unique
+  contrasena       String
+  rol              String      @check("rol IN ('Admin', 'Aux')")
+  comerciante      Comerciante?
+  establecimiento   Establecimiento?
+}
+
+// Modelo de Comerciante
+model Comerciante {
+  id_comerciante   Int           @id @default(autoincrement())
+  nombre_completo  String
+  ciudad           String
+  telefono         String?
+  correo_electronico String?
+  fecha_registro   DateTime      @default(now())
+  estado           String        @check("estado IN ('Activo', 'Inactivo')")
+  fecha_actualizacion DateTime   @default(now())
+  usuario_actualizacion Int?     @relation(fields: [usuario_actualizacion], references: [id_usuario])
+  usuario_actualizacion Usuario?
+  establecimientos  Establecimiento[]
+}
+
+// Modelo de Establecimiento
+model Establecimiento {
+  id_establecimiento Int           @id @default(autoincrement())
+  nombre_establecimiento String
+  ingresos           Decimal      @db.Decimal(15, 2)
+  numero_empleados   Int
+  fecha_actualizacion DateTime     @default(now())
+  usuario_actualizacion Int?       @relation(fields: [usuario_actualizacion], references: [id_usuario])
+  usuario_actualizacion Usuario?
+  comerciante_id     Int
+  comerciante        Comerciante  @relation(fields: [comerciante_id], references: [id_comerciante])
+}
+
+
