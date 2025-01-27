@@ -1,6 +1,9 @@
+/*
+  /api/comer/
+*/
 import { NextResponse } from "next/server";
 import pool from "@/app/db/db";
-import { authMiddleware } from "../middleware/auth";
+import { authMiddleware, validateAdmin } from "../middleware/auth";
 
 // Función para obtener comerciantes con paginación
 export const getComerciante = async (skip: number, limit: number) => {
@@ -23,9 +26,50 @@ export const getComercianteById = async (id: number) => {
   return result.rows[0];
 };
 
+// Función para actualizar un comerciante por ID
+export const updateComercianteById = async (id: number, camposActualizacion: any) => {
+  // Construir la consulta dinámica
+  const keys = Object.keys(camposActualizacion);
+  const values = Object.values(camposActualizacion);
+
+  // Validar que haya campos para actualizar
+  if (keys.length === 0) {
+    throw new Error("No se proporcionaron campos para actualizar.");
+  }
+
+  // Generar la parte dinámica de la consulta
+  const setClause = keys.map((key, index) => `${key} = $${index + 2}`).join(", ");
+
+  // Construir la consulta completa
+  const query = `UPDATE comerciante SET ${setClause} WHERE id_comerciante = $1 RETURNING *`;
+
+  // Ejecutar la consulta
+  const result = await pool.query(query, [id, ...values]);
+
+  // Devolver el comerciante actualizado
+  return result.rows[0];
+};
+
+// Función para Eliminar/Cambio de estado de un comerciante por su ID
+export const deleteComercianteEstado = async (id: number) => {
+  try {
+    const result = await pool.query(
+      "UPDATE comerciante SET estado = $1 WHERE id_comerciante = $2 RETURNING *",
+      ["Inactivo", id]
+    );
+    return result.rows[0];
+  } catch (error) {
+    console.error("Error al actualizar el estado del comerciante:", error);
+    return null;
+  }
+};
+
+
+
+
 // Función para crear un nuevo comerciante
 export const createComerciante = async (comerciante: {
-  nombre: string;
+  nombre_completo: string;
   ciudad: string;
   telefono: string;
   correo_electronico: string;
@@ -33,7 +77,7 @@ export const createComerciante = async (comerciante: {
   usuario_actualizacion: number;
 }) => {
   const {
-    nombre,
+    nombre_completo,
     ciudad,
     telefono,
     correo_electronico,
@@ -42,8 +86,8 @@ export const createComerciante = async (comerciante: {
   } = comerciante;
 
   const result = await pool.query(
-    "INSERT INTO comerciante (nombre, ciudad, telefono, correo_electronico, estado, usuario_actualizacion) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
-    [nombre, ciudad, telefono, correo_electronico, estado, usuario_actualizacion]
+    "INSERT INTO comerciante (nombre_completo, ciudad, telefono, correo_electronico, estado, usuario_actualizacion) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+    [nombre_completo, ciudad, telefono, correo_electronico, estado, usuario_actualizacion]
   );
   return result.rows[0];
 };
@@ -101,7 +145,7 @@ export async function POST(req: Request) {
   try {
     // Leer el cuerpo de la solicitud
     const body = await req.json();
-    console.log(body);
+    
 
     // Verificar si es una consulta por ID
     if (body.id) {
@@ -118,9 +162,10 @@ export async function POST(req: Request) {
     }
 
     // Crear un nuevo comerciante
-    if (body.nombre && body.email && body.telefono && body.ciudad) {
+    if (body.nombre_completo && body.correo_electronico && body.telefono && body.estado === 'Activo') {
+      console.log('Entramos al POST IF, Datos con Nombres: ',body);
       const nuevoComerciante = await createComerciante({
-        nombre: body.nombre_completo,
+        nombre_completo: body.nombre_completo,
         ciudad: body.ciudad,
         telefono: body.telefono,
         correo_electronico: body.correo_electronico,
@@ -144,22 +189,99 @@ export async function POST(req: Request) {
 
 // PUT
 export async function PUT(req: Request) {
-  const tokenValidationResponse = await authMiddleware(req); 
+  const tokenValidationResponse = await authMiddleware(req);
   if (tokenValidationResponse.status !== 200) {
-      return tokenValidationResponse;
+    return tokenValidationResponse; 
   }
 
-  // Aquí va la lógica para actualizar un comerciante
-  return NextResponse.json({ ok: true, msg: 'Comerciante actualizado' });
+  try {
+    // Leer el cuerpo de la solicitud
+    const body = await req.json();
+
+    // Validar si el ID está presente
+    if (!body.id_comerciante) {
+      return NextResponse.json(
+        { ok: false, error: "Es necesario proporcionar el ID del comerciante." },
+        { status: 400 }
+      );
+    }
+
+    // Validar que al menos un campo esté presente para actualizar
+    if (!body.nombre_completo && !body.ciudad && !body.telefono && !body.correo_electronico && !body.estado) {
+      return NextResponse.json(
+        { ok: false, error: "No hay datos suficientes para actualizar el comerciante." },
+        { status: 400 }
+      );
+    }
+
+    // Construir el objeto con los campos a actualizar
+    const camposActualizacion: any = {};
+    if (body.nombre_completo) camposActualizacion.nombre_completo = body.nombre_completo;
+    if (body.ciudad) camposActualizacion.ciudad = body.ciudad;
+    if (body.telefono) camposActualizacion.telefono = body.telefono;
+    if (body.correo_electronico) camposActualizacion.correo_electronico = body.correo_electronico;
+    if (body.estado) camposActualizacion.estado = body.estado;
+    if (body.usuario_actualizacion) camposActualizacion.usuario_actualizacion = body.usuario_actualizacion;
+
+    // Llamar a la función para actualizar al comerciante
+    const comercianteActualizado = await updateComercianteById(body.id_comerciante, camposActualizacion);
+
+    if (!comercianteActualizado) {
+      return NextResponse.json(
+        { ok: false, error: "No se encontró el comerciante o no se pudo actualizar." },
+        { status: 404 }
+      );
+    }
+
+    // Responder con los datos del comerciante actualizado
+    return NextResponse.json({ ok: true, msg: comercianteActualizado });
+  } catch (error) {
+    console.error("Error en el método PUT:", error);
+    return NextResponse.json(
+      { ok: false, error: "Error interno del servidor." },
+      { status: 500 }
+    );
+  }
 }
 
 // DELETE
 export async function DELETE(req: Request) {
-  const tokenValidationResponse = await authMiddleware(req); 
-  if (tokenValidationResponse.status !== 200) {
-      return tokenValidationResponse;
+  const tokenValidationAdminResponse = await validateAdmin(req);
+  if (tokenValidationAdminResponse.status !== 200 ) {
+    return tokenValidationAdminResponse;
   }
 
-  // Aquí va la lógica para eliminar un comerciante
-  return NextResponse.json({ ok: true, msg: 'Comerciante eliminado' });
+  try {
+    const { id_comerciante } = await req.json();
+
+    console.log(id_comerciante)
+
+    if (!id_comerciante) {
+      return NextResponse.json(
+        { ok: false, error: "El ID del comerciante es requerido" },
+        { status: 400 }
+      );
+    }
+
+    const result = await deleteComercianteEstado(id_comerciante);
+
+    if (!result) {
+      return NextResponse.json(
+        { ok: false, error: "Comerciante no encontrado o ya está inactivo ó Eliminado" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      msg: "El comerciante ha sido marcado como inactivo ó Eliminado",
+    });
+  } catch (error) {
+    console.error("Error al actualizar el estado del comerciante:", error);
+    return NextResponse.json(
+      { ok: false, error: "Error interno del servidor" },
+      { status: 500 }
+    );
+  }
 }
+
